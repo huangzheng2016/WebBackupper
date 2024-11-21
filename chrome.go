@@ -63,7 +63,7 @@ func downloadWebPage(downloadUrl string) {
 		switch ev := v.(type) {
 		case *network.EventRequestWillBeSent:
 			requestMap[ev.Request.URL] = ev.RequestID
-			//fmt.Println(ev.Request.URL)
+			log.Println(ev.Request.URL)
 		}
 	})
 	var htmlContent string
@@ -89,6 +89,12 @@ func cacheContent(url string) string {
 func getFileExt(url string) string {
 	return filepath.Ext(strings.Split(url, "?")[0])
 }
+func filePathInUnixStyle(url string) string {
+	return strings.Replace(url, "\\", "/", -1)
+}
+func filePathInUnixRoot(url string) string {
+	return filePathInUnixStyle(filepath.Join("/", url))
+}
 func saveFile(ctx context.Context, fileName string, fileBuf []byte, requestId network.RequestID, requestMap map[string]network.RequestID, baseUrl *url.URL, types string) string {
 	if fileBuf == nil {
 		if err := chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -106,19 +112,24 @@ func saveFile(ctx context.Context, fileName string, fileBuf []byte, requestId ne
 		replacedCSS := re.ReplaceAllStringFunc(string(fileBuf), func(s string) string {
 			sub := re.FindStringSubmatch(s)
 			for _, oldUrl := range sub {
+				oldUrl = strings.Replace(oldUrl, "url(", "", 1)
+				oldUrl = strings.Replace(oldUrl, "\"", "", 1)
+				oldUrl = strings.Replace(oldUrl, "'", "", 1)
 				absUrl := oldUrl
+				absoluteUrl := baseUrl
 				if !strings.HasPrefix(absUrl, "http") {
 					absUrlParsed, err := url.Parse(absUrl)
 					if err != nil {
 						continue
 					}
-					absoluteUrl := baseUrl.ResolveReference(absUrlParsed)
+					absoluteUrl = baseUrl.ResolveReference(absUrlParsed)
 					absUrl = absoluteUrl.String()
+					//fmt.Println(baseUrl.String(), absUrl)
 				}
 				if newRequestId, exist := requestMap[absUrl]; exist {
-					newUrl := saveFile(ctx, absUrl, nil, newRequestId, requestMap, baseUrl, "")
-					//fmt.Println(oldUrl, newUrl)
-					s = strings.Replace(s, oldUrl, "../../../"+newUrl, -1)
+					newUrl := saveFile(ctx, absUrl, nil, newRequestId, requestMap, absoluteUrl, "")
+					log.Println(oldUrl, newUrl)
+					s = strings.Replace(s, oldUrl, filePathInUnixRoot(newUrl), -1)
 				}
 			}
 			return s
@@ -140,7 +151,7 @@ func saveFile(ctx context.Context, fileName string, fileBuf []byte, requestId ne
 }
 
 var replaceArray = []string{"img", "script", "link", "style"}
-var srcArray = []string{"script"}
+var srcArray = []string{"script", "img"}
 var hrefArray = []string{"link"}
 var importArray = []string{"style"}
 
@@ -150,16 +161,18 @@ func searchNode(ctx context.Context, baseUrl *url.URL, requestMap map[string]net
 			attr := &n.Attr[i]
 			if attr.Key == "src" || attr.Key == "href" {
 				absUrl := attr.Val
+				absoluteUrl := baseUrl
 				if !strings.HasPrefix(absUrl, "http") {
 					absUrlParsed, err := url.Parse(absUrl)
 					if err != nil {
-						return
+						continue
 					}
-					absoluteUrl := baseUrl.ResolveReference(absUrlParsed)
+					absoluteUrl = baseUrl.ResolveReference(absUrlParsed)
 					absUrl = absoluteUrl.String()
+					//fmt.Println(baseUrl.String(), absUrl)
 				}
 				if requestId, exist := requestMap[absUrl]; exist {
-					attr.Val = saveFile(ctx, absUrl, nil, requestId, requestMap, baseUrl, n.Data)
+					attr.Val = saveFile(ctx, absUrl, nil, requestId, requestMap, absoluteUrl, n.Data)
 				}
 				return
 			}
@@ -177,7 +190,7 @@ func searchNode(ctx context.Context, baseUrl *url.URL, requestMap map[string]net
 					n.FirstChild = nil
 				}
 				if inArray(importArray, n.Data) {
-					c.Data = fmt.Sprintf("@import url('%s');", filePath)
+					c.Data = fmt.Sprintf("@import url('%s');", filePathInUnixRoot(filePath))
 				}
 			}
 		}
