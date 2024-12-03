@@ -1,0 +1,6 @@
+version: '3'
+services:
+  singlefile:
+    build:
+      context: singlefile/.
+      dockerfile: Dockerfile
