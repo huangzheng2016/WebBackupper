@@ -11,13 +11,17 @@ import (
 const (
 	SINGLEFILE_EXECUTABLE = "single-file"
 	BROWSER_PATH          = "/usr/bin/chromium-browser"
+	STATIC_FILE_PATH      = "static/"
 )
 
 func main() {
 	r := gin.Default()
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{"test": "OK"})
+	})
 	r.POST("/", func(c *gin.Context) {
 		args := []string{
-			"--browser-executable-path=" + BROWSER_PATH,
+			//"--browser-executable-path=" + BROWSER_PATH,
 			"--browser-args='[\"--no-sandbox\"]'",
 			"--block-scripts=false",
 			"--browser-width=1600",
@@ -56,7 +60,7 @@ func main() {
 			cmd.Stderr = &stderr
 			err := cmd.Run()
 			if err != nil {
-				c.JSON(500, map[string]interface{}{
+				c.JSON(500, gin.H{
 					"code": 500,
 					"msg":  fmt.Sprint("Error: %v", err),
 					"out":  stdout.String(),
@@ -64,19 +68,27 @@ func main() {
 				})
 				return
 			}
-			c.JSON(200, map[string]interface{}{
+			modedHtml := parseHTML(stdout)
+
+			print(c.PostForm("purehtml"))
+			if c.PostForm("purehtml") == "true" {
+				c.Header("Content-Type", "text/html; charset=utf-8")
+				c.String(200, modedHtml)
+				return
+			}
+			c.JSON(200, gin.H{
 				"code": 200,
 				"msg":  "success",
 				"out":  stdout.String(),
 				"err":  stderr.String(),
 			})
 		} else {
-			c.JSON(500, map[string]interface{}{
+			c.JSON(500, gin.H{
 				"code": 500,
 				"msg":  "Error: url parameter not found.",
 			})
 		}
 	})
-
-	r.Run(":80")
+	r.Static("/static", STATIC_FILE_PATH)
+	r.Run(":8010")
 }
