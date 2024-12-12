@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -14,7 +17,20 @@ const (
 	STATIC_FILE_PATH      = "static/"
 )
 
+type Page struct {
+	gorm.Model
+	Host   string
+	Path   string
+	RawURL string
+}
+
+//Path重命名规则
+//没有最后/的，判断结尾是否是html，不是就加上
+//有的话/去掉用上述规则
+
 func main() {
+	db, _ := gorm.Open(sqlite.Open("gorm.db"), &gorm.Config{})
+	db.AutoMigrate(&Page{})
 	r := gin.Default()
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{"test": "OK"})
@@ -51,7 +67,17 @@ func main() {
 		}
 
 		urlInput := c.PostForm("url")
+		urlObj, _ := url.Parse(urlInput)
+		page := Page{
+			Host:   urlObj.Host,
+			Path:   urlObj.Path,
+			RawURL: urlInput,
+		}
+
 		if urlInput != "" {
+			db.Create(&page)
+			savePage(page)
+
 			args = append(args, urlInput)
 			cmd := exec.Command(SINGLEFILE_EXECUTABLE,
 				args...)
@@ -68,14 +94,6 @@ func main() {
 				})
 				return
 			}
-			modedHtml := parseHTML(stdout)
-
-			print(c.PostForm("purehtml"))
-			if c.PostForm("purehtml") == "true" {
-				c.Header("Content-Type", "text/html; charset=utf-8")
-				c.String(200, modedHtml)
-				return
-			}
 			c.JSON(200, gin.H{
 				"code": 200,
 				"msg":  "success",
@@ -88,6 +106,23 @@ func main() {
 				"msg":  "Error: url parameter not found.",
 			})
 		}
+	})
+	//进行站点创建
+	r.POST("/create", func(c *gin.Context) {
+		//创建新的Site对象
+		//获取请求中的url参数
+		urlParam := c.PostForm("url")
+		//解析url
+		_, err := url.Parse(urlParam)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"code": 500,
+				"msg":  "Error: url parameter error.",
+			})
+		}
+		//获取host
+		//获取path
+
 	})
 	r.Static("/static", STATIC_FILE_PATH)
 	r.Run(":8010")
